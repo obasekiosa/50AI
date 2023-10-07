@@ -51,6 +51,7 @@ knowledge3 = And(
     exclusive_or(BKnight, BKnave),
     exclusive_or(CKnight, CKnave),
     maybe_statement(AKnight, AKnave, Or(AKnight, AKnave)),
+    BKnave,
     maybe_statement(BKnight, BKnave, CKnave),
     maybe_statement(CKnight, CKnave, AKnight)
 )
