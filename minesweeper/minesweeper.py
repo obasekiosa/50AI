@@ -94,39 +94,72 @@ class Sentence():
     def __init__(self, cells, count):
         self.cells = set(cells)
         self.count = count
+        print("New Sentence ", self.cells, count)
+        self.mines = set()
+        self.safe = set()
+        self.reduce()
 
     def __eq__(self, other):
         return self.cells == other.cells and self.count == other.count
 
     def __str__(self):
         return f"{self.cells} = {self.count}"
+    
+    def is_subset(self, other):
+        return self.cells < other.cells
+
+    def subtract(self, other):
+        return Sentence(self.cells - other.cells, self.count - other.count)
+    
+    def is_fully_evaluated(self):
+        return len(self.cells) == 0
 
     def known_mines(self):
         """
         Returns the set of all cells in self.cells known to be mines.
         """
-        raise NotImplementedError
+        return set(self.mines)
 
     def known_safes(self):
         """
         Returns the set of all cells in self.cells known to be safe.
         """
-        raise NotImplementedError
+        return set(self.safe)
 
     def mark_mine(self, cell):
         """
         Updates internal knowledge representation given the fact that
         a cell is known to be a mine.
         """
-        raise NotImplementedError
+        if cell in self.cells:
+            self.mines.add(cell)
+            self.cells.remove(cell)
+            self.count -= 1
+            self.reduce()
 
     def mark_safe(self, cell):
         """
         Updates internal knowledge representation given the fact that
         a cell is known to be safe.
         """
-        raise NotImplementedError
+        if cell in self.cells:
+            self.safe.add(cell)
+            self.cells.remove(cell)
+            self.reduce()
 
+    def reduce(self):
+        if len(self.cells) == 0:
+            return
+
+        if len(self.cells) == self.count:
+            self.mines.update(self.cells)
+            print("fines found here ====", self.mines)
+            self.cells = set()
+            self.count = 0
+
+        if self.count == 0:
+            self.safe.update(self.cells)
+            self.cells = set()
 
 class MinesweeperAI():
     """
@@ -138,6 +171,11 @@ class MinesweeperAI():
         # Set initial height and width
         self.height = height
         self.width = width
+
+        self.remaining_moves = set()
+        for i in range(self.width):
+            for j in range(self.height):
+                self.remaining_moves.add((i, j))
 
         # Keep track of which cells have been clicked on
         self.moves_made = set()
@@ -182,7 +220,133 @@ class MinesweeperAI():
             5) add any new sentences to the AI's knowledge base
                if they can be inferred from existing knowledge
         """
-        raise NotImplementedError
+        #self.remaining_moves.remove(cell)
+        self.moves_made.add(cell)
+        self.mark_safe(cell)
+        new_sentence = self.get_new_sentence(cell, count)
+        if new_sentence is None:
+            return None
+        self.knowledge.append(new_sentence)
+        
+        self.learn_from_knowledge()
+
+
+    def learn_from_knowledge(self):
+        while True:
+            known_mines = set()
+            known_safes = set()
+            unfinished_sentences = []
+
+            fully_evaluated_count = 0
+            for sentence in self.knowledge:
+                known_mines.update(sentence.known_mines())
+                known_safes.update(sentence.known_safes())
+                if not sentence.is_fully_evaluated():
+                    unfinished_sentences.append(sentence)
+                else:
+                    fully_evaluated_count += 1 
+
+            self.knowledge = unfinished_sentences
+            for cell in known_mines:
+                if cell not in self.mines:
+                    self.mark_mine(cell)
+            for cell in known_safes:
+                if cell not in self.safes:
+                    self.mark_safe(cell)
+            print("Number of sentences removed:", fully_evaluated_count)
+
+            # perform inference
+            new_sentences = []
+
+            indexes_of_sentences_to_remove = set()
+            knowledge_size = len(self.knowledge)
+
+            for i in range(knowledge_size):
+                for j in range(i + 1, knowledge_size):
+                    if self.knowledge[i].is_subset(self.knowledge[j]):
+                        new_sentences.append(self.knowledge[j].subtract(self.knowledge[i]))
+                    elif self.knowledge[j].is_subset(self.knowledge[i]):
+                        new_sentences.append(self.knowledge[i].subtract(self.knowledge[j]))
+                    elif self.knowledge[i] == self.knowledge[j]:
+                        indexes_of_sentences_to_remove.add(i)
+            
+            print("Number of Duplicate knowledge found:", len(indexes_of_sentences_to_remove))
+            print("Number of new knowledge found:", len(new_sentences))
+
+            unique_knowledge = []
+            for i in range(knowledge_size):
+                if i not in indexes_of_sentences_to_remove:
+                    unique_knowledge.append(self.knowledge[i])
+
+            print("Number of Unique Knowledge:", len(unique_knowledge))
+
+
+            new_known_mines = set()
+            new_known_safes = set()
+            for sentence in new_sentences:
+                if sentence.is_fully_evaluated():
+                    print(sentence)
+                    new_known_mines.update(sentence.known_mines())
+                    new_known_safes.update(sentence.known_safes())
+                else:
+                    unique_knowledge.append(sentence)
+            
+            index_of_new_sentences_to_remove = set()
+            new_sentences_size = len(unique_knowledge)
+            for i in range(new_sentences_size):
+                for j in range(i + 1, new_sentences_size):
+                    if unique_knowledge[i] == unique_knowledge[j]:
+                        index_of_new_sentences_to_remove.add(i)
+                        break
+            
+            temp_sentences = []
+            for i in range(new_sentences_size):
+                if i not in index_of_new_sentences_to_remove:
+                    temp_sentences.append(unique_knowledge[i])
+
+            self.knowledge = temp_sentences
+
+            new_marks = 0
+            for cell in new_known_mines:
+                if cell not in self.mines:
+                    self.mark_mine(cell)
+                    new_marks += 1
+            for cell in new_known_safes:
+                if cell not in self.safes:
+                    self.mark_safe(cell)
+                    new_marks += 1
+            
+            print("Size of new Knowldge base:", len(self.knowledge))
+
+            if fully_evaluated_count == 0 and new_marks == 0:
+                break
+        print("Number of known mines:", len(self.mines))
+        print(self.mines)
+        print("Number of known safe cells:", len(self.safes))
+
+
+    def get_new_sentence(self, cell, count):
+        directions = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+        neighbours = []
+        effective_count = count
+
+        for deltaX, deltaY in directions:
+            new_cell = (cell[0] + deltaX, cell[1] + deltaY)
+            if 0 <= new_cell[0] < self.width and 0 <= new_cell[1] < self.height:
+                if new_cell in self.safes:
+                    continue
+                if new_cell in self.mines:
+                    effective_count -= 1
+                    continue
+                neighbours.append(new_cell)
+
+
+        if len(neighbours) == 0:
+            return None
+        
+        new_sentence = Sentence(neighbours, effective_count)
+        print(new_sentence)
+        return new_sentence
 
     def make_safe_move(self):
         """
@@ -193,7 +357,10 @@ class MinesweeperAI():
         This function may use the knowledge in self.mines, self.safes
         and self.moves_made, but should not modify any of those values.
         """
-        raise NotImplementedError
+        possible_moves = self.safes - self.moves_made
+        if len(possible_moves) != 0:
+            return possible_moves.pop()
+        return None
 
     def make_random_move(self):
         """
@@ -202,4 +369,12 @@ class MinesweeperAI():
             1) have not already been chosen, and
             2) are not known to be mines
         """
-        raise NotImplementedError
+        all_moves = set()
+        for i in range(self.width):
+            for j in range(self.height):
+                all_moves.add((i, j))
+        all_moves = all_moves - self.mines
+        all_moves = all_moves - self.moves_made
+        if len(all_moves) != 0:
+            return random.choice(list(all_moves))
+        return None
